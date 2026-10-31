@@ -1,0 +1,38 @@
+name: Validate model
+
+# Runs on the pull request without secrets and with a read-only token. The checks come from main,
+# the pull request only supplies data, and nothing from it is ever executed or loaded as a model.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checks from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: base
+          persist-credentials: false
+      - name: The pull request as data
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          path: pr
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          git -C pr fetch --quiet "https://github.com/${{ github.repository }}.git" "$BASE_SHA"
+          git -C pr diff --name-only --no-renames "$BASE_SHA...HEAD" > changed.txt
+          python3 base/scripts/hub_tools.py validate --pr pr --base base --changed changed.txt --author "$PR_AUTHOR"

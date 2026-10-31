@@ -1,0 +1,18 @@
+# Weights live in releases and pictures never belong here.
+*.safetensors
+*.pth
+*.ckpt
+*.onnx
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.gif
+*.bmp
+*.tif
+*.tiff
+*.heic
+*.mp4
+*.mov
+*.zip
+__pycache__/

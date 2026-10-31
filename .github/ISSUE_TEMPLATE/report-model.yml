@@ -1,0 +1,17 @@
+name: Report a model
+description: A model breaks rights, contains something it must not, or does not do what it says.
+labels: [report]
+body:
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      description: For example football/small/my-model
+    validations:
+      required: true
+  - type: textarea
+    id: reason
+    attributes:
+      label: What is wrong?
+    validations:
+      required: true

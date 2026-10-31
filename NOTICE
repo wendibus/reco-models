@@ -1,0 +1,5 @@
+reco Model Hub
+
+The models in this hub are fine-tuned from RF-DETR by Roboflow, Inc.
+RF-DETR Nano, Small and Medium, including their COCO weights, are licensed under the
+Apache License 2.0. See LICENSE.

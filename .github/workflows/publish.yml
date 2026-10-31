@@ -1,0 +1,27 @@
+name: Publish models
+
+# After a merge: copy new weights from the fork into a release of this repository, so links stay
+# valid when the fork goes away, and rebuild the index the trainer reads.
+on:
+  push:
+    branches: [main]
+    paths: ['sports/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Mirror weights and rebuild the index
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/hub_tools.py publish --repo "${{ github.repository }}"
