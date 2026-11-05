@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "id": "ai-footage",
+  "name": "AI Footage",
+  "version": "1.0.0",
+  "sport": "basketball",
+  "size": "nano",
+  "architecture": "rf-detr",
+  "parent": null,
+  "author": "wendibus",
+  "license": "Apache-2.0",
+  "description": "First attempt of a training with AI generated Basketball content",
+  "classes": [
+    "ball",
+    "player",
+    "referee",
+    "hoop"
+  ],
+  "input_resolution": 384,
+  "training": {
+    "images": 10000,
+    "games": 1,
+    "synthetic_images": 0,
+    "camera": "AI",
+    "venue": "indoor",
+    "epochs": 113
+  },
+  "checkpoint_sanitized": true,
+  "rights": {
+    "confirmed_by": "wendibus",
+    "confirmed_at": "2026-11-05T16:23:14Z",
+    "statement_version": 1
+  },
+  "metrics": {
+    "self_reported": {
+      "mAP50": 0.96966952085495,
+      "mAP50_95": 0.8574470281600952,
+      "validation_images": 2000
+    }
+  },
+  "compat": {
+    "trainer_min": "0.27.0"
+  },
+  "files": [
+    {
+      "format": "safetensors",
+      "source_url": "https://github.com/wendibus/reco-models/releases/download/basketball-nano-ai-footage-v1.0.0/basketball-nano-ai-footage.safetensors",
+      "sha256": "a28c887ea3ec7079f5ed7eee99cec4fc58ae4367f5793434db8721f08e905784",
+      "size_bytes": 120688688
+    }
+  ]
+}
