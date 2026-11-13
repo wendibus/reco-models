@@ -125,6 +125,76 @@ class WeightsTests(unittest.TestCase):
             hub_tools.read_header(self.path)
 
 
+def yolo_weights_file(path: Path, width=16, classes=2, extra=b"", tensors=700) -> None:
+    header, offset = {}, 0
+    names = [hub_tools.YOLO_FIRST_KEY, *hub_tools.YOLO_CLASS_KEYS] + [f"model.{1 + index % 22}.part{index}.weight" for index in range(tensors - 4)]
+    for name in names:
+        shape = [width, 3, 3, 3] if name == hub_tools.YOLO_FIRST_KEY else [classes, 4 * width, 1, 1] if name in hub_tools.YOLO_CLASS_KEYS else [1]
+        header[name] = {"dtype": "F16", "shape": shape, "data_offsets": [offset, offset + 2]}
+        offset += 2
+    raw = json.dumps(header).encode()
+    path.write_bytes(struct.pack("<Q", len(raw)) + raw + b"\0" * offset + extra)
+
+
+def yolo_model(**changes) -> dict:
+    return model(**{
+        "id": "yolo-hall", "size": "yolo-nano", "architecture": "yolo26", "license": "AGPL-3.0", "input_resolution": 640, "classes": ["ball", "player"],
+        "framework": {"name": "ultralytics", "version": "8.4.180"}, "compat": {"trainer_min": "0.37.0"},
+        "rights": {"confirmed_by": "someone", "confirmed_at": "2026-11-13T00:00:00Z", "statement_version": 2},
+        "files": [{"format": "safetensors", "sha256": "a" * 64, "size_bytes": 1, "source_url": "https://github.com/someone/reco-models/releases/download/basketball-yolo-nano-yolo-hall-v1.0.0/w.safetensors"}], **changes,
+    })
+
+
+YOLO_PATH = "sports/basketball/yolo-nano/yolo-hall/model.json"
+
+
+class YoloTests(unittest.TestCase):
+    def test_a_good_yolo_model_passes_and_the_folder_takes_the_family_name(self):
+        self.assertEqual(hub_tools.check_changed_files([YOLO_PATH]), YOLO_PATH)
+        hub_tools.check_model(yolo_model(), YOLO_PATH, "someone")
+
+    def test_broken_yolo_models_fail(self):
+        for changes in (
+            {"license": "Apache-2.0"}, {"license": "MIT"}, {"architecture": "rf-detr"}, {"size": "nano"}, {"size": "yolo-large"}, {"input_resolution": 512}, {"framework": None}, {"framework": {"name": "x", "version": "1.0.0"}},
+            {"rights": {"confirmed_by": "someone", "confirmed_at": "x", "statement_version": 1}}, {"compat": {"trainer_min": "0.36.0"}}, {"parent": "basketball/small/other@1.0.0"}, {"classes": ["ball", "goal"]},
+        ):
+            with self.assertRaises(hub_tools.Invalid, msg=changes):
+                hub_tools.check_model(yolo_model(**changes), YOLO_PATH, "someone")
+        with self.assertRaises(hub_tools.Invalid):
+            hub_tools.check_model(model(framework={"name": "ultralytics", "version": "8.4.180"}), PATH, "someone")
+        with self.assertRaises(hub_tools.Invalid):
+            hub_tools.check_model(model(license="AGPL-3.0"), PATH, "someone")  # RF-DETR stays Apache-2.0
+        hub_tools.check_model(yolo_model(parent="basketball/yolo-small/other@1.0.0"), YOLO_PATH, "someone")
+
+    def check(self, **options):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        path = Path(folder.name) / "w.safetensors"
+        yolo_weights_file(path, **options)
+        digest = hub_tools.hashlib.sha256(path.read_bytes()).hexdigest()
+        hub_tools.check_weights(path, yolo_model(files=[{**yolo_model()["files"][0], "sha256": digest}]))
+
+    def test_good_yolo_weights_pass_and_the_header_decides_size_and_classes(self):
+        self.check()
+        for options in ({"width": 32}, {"width": 24}, {"classes": 3}, {"tensors": 20}, {"extra": b"trailing"}):
+            with self.assertRaises(hub_tools.Invalid, msg=options):
+                self.check(**options)
+
+    def test_rf_detr_weights_are_not_accepted_as_yolo(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        path = Path(folder.name) / "w.safetensors"
+        weights_file(path)
+        digest = hub_tools.hashlib.sha256(path.read_bytes()).hexdigest()
+        with self.assertRaises(hub_tools.Invalid):
+            hub_tools.check_weights(path, yolo_model(files=[{**yolo_model()["files"][0], "sha256": digest}]))
+
+    def test_the_index_keeps_the_license_and_the_framework(self):
+        entry = hub_tools.build_index([yolo_model()], "owner/reco-models")["models"][0]
+        self.assertEqual((entry["license"], entry["architecture"], entry["framework"]["version"]), ("AGPL-3.0", "yolo26", "8.4.180"))
+        self.assertEqual(entry["files"][0]["url"], "https://github.com/owner/reco-models/releases/download/basketball-yolo-nano-yolo-hall-v1.0.0/w.safetensors")
+
+
 class IndexTests(unittest.TestCase):
     def test_index_points_to_the_main_repository_and_leaves_rights_out(self):
         index = hub_tools.build_index([model()], "owner/reco-models")

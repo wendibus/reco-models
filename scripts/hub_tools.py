@@ -25,6 +25,19 @@ SPORT_CLASSES = {
     "american_football": {"ball", "player", "referee", "goalpost"},
 }
 SIZES = {"nano": 384, "small": 512, "medium": 576}
+# YOLO26 (Ultralytics, AGPL-3.0). The size names carry the family, so one folder level holds both.
+YOLO_SIZES = {"yolo-nano": 16, "yolo-small": 32, "yolo-medium": 64}  # width of the first convolution
+YOLO_FIRST_KEY = "model.0.conv.weight"
+YOLO_CLASS_KEYS = tuple(f"model.23.cv3.{head}.2.weight" for head in range(3))
+YOLO_IMAGE_SIZES = (640, 960, 1280)
+YOLO_TENSOR_KEY = re.compile(r"^model\.\d+\.[A-Za-z0-9_.]+$")
+YOLO_DTYPES = {"F16", "F32", "I64"}
+YOLO_TRAINER_MIN = (0, 37, 0)
+# Which license, which rights statement and which sizes belong to which architecture.
+ARCHITECTURES = {
+    "rf-detr": {"license": "Apache-2.0", "statement": 1, "sizes": tuple(SIZES)},
+    "yolo26": {"license": "AGPL-3.0", "statement": 2, "sizes": tuple(YOLO_SIZES)},
+}
 POSITION_TOKENS = {577: "nano", 1025: "small", 1297: "medium"}
 POSITION_KEY = "backbone.0.encoder.encoder.embeddings.position_embeddings"
 CLASS_HEAD_KEY = "transformer.enc_out_class_embed.0.bias"
@@ -35,8 +48,8 @@ VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 TENSOR_KEY = re.compile(r"^[A-Za-z0-9_.]+$")
 PRIVATE_TEXT = re.compile(r"(/Users/|/home/|[A-Za-z]:\\|/Volumes/|\S+@\S+\.\S+)")
-MODEL_PATH = re.compile(r"^sports/([a-z_]+)/([a-z]+)/([a-z0-9-]+)/model\.json$")
-ALLOWED_KEYS = {"schema", "id", "name", "version", "sport", "size", "architecture", "parent", "author", "license", "description", "classes", "input_resolution", "training", "checkpoint_sanitized", "rights", "metrics", "compat", "files", "deprecated"}
+MODEL_PATH = re.compile(r"^sports/([a-z_]+)/([a-z]+(?:-[a-z]+)?)/([a-z0-9-]+)/model\.json$")
+ALLOWED_KEYS = {"schema", "id", "name", "version", "sport", "size", "architecture", "parent", "author", "license", "description", "classes", "input_resolution", "training", "checkpoint_sanitized", "rights", "metrics", "compat", "files", "deprecated", "framework"}
 INDEX_DROPPED = {"rights"}
 
 
@@ -69,16 +82,24 @@ def check_model(model: dict, path: str, author: str | None = None) -> None:
     sport, size, model_id = MODEL_PATH.match(path).groups()
     need(model.get("schema") == 1, "schema must be 1")
     need(model.get("sport") == sport and sport in SPORT_CLASSES, f"sport must match the folder and be one of {sorted(SPORT_CLASSES)}")
-    need(model.get("size") == size and size in SIZES, "size must match the folder and be nano, small or medium")
+    architecture = ARCHITECTURES.get(model.get("architecture"))
+    need(architecture is not None, "architecture must be rf-detr or yolo26")
+    architecture = architecture or ARCHITECTURES["rf-detr"]
+    need(model.get("size") == size and size in architecture["sizes"], f"size must match the folder and be one of {', '.join(architecture['sizes'])}")
     need(model.get("id") == model_id and bool(MODEL_ID.match(model_id)), "id must match the folder")
     need(bool(VERSION.match(str(model.get("version", "")))), "version must look like 1.2.3")
-    need(model.get("architecture") == "rf-detr", "architecture must be rf-detr")
-    need(model.get("license") == "Apache-2.0", "license must be Apache-2.0")
+    need(model.get("license") == architecture["license"], f"license must be {architecture['license']}")
     need(model.get("checkpoint_sanitized") is True, "checkpoint_sanitized must be true")
     need(isinstance(model.get("author"), str) and bool(model.get("author")), "author is missing")
     if author is not None:
         need(model.get("author") == author, "author must be the GitHub account of the pull request")
-    need(model.get("input_resolution") == SIZES.get(size), "input_resolution does not fit the size")
+    if model.get("architecture") == "yolo26":
+        need(model.get("input_resolution") in YOLO_IMAGE_SIZES, f"input_resolution must be one of {YOLO_IMAGE_SIZES}")
+        framework = model.get("framework")
+        need(isinstance(framework, dict) and framework.get("name") == "ultralytics" and bool(re.match(r"^\d+\.\d+\.\d+$", str(framework.get("version", "")))), "framework must name ultralytics and its version")
+    else:
+        need(model.get("input_resolution") == SIZES.get(size), "input_resolution does not fit the size")
+        need("framework" not in model, "framework is only for yolo26 models")
     classes = model.get("classes")
     need(isinstance(classes, list) and bool(classes) and len(set(classes)) == len(classes) and set(classes) <= SPORT_CLASSES.get(sport, set()), "classes must be classes of this sport")
     for field in ("name", "description"):
@@ -86,13 +107,18 @@ def check_model(model: dict, path: str, author: str | None = None) -> None:
         need(not PRIVATE_TEXT.search(str(model.get(field, ""))), f"{field} must not contain paths or mail addresses")
     need(bool(model.get("name")), "name is missing")
     parent = model.get("parent")
-    need(parent is None or re.match(r"^[a-z_]+/(nano|small|medium)/[a-z0-9-]+@\d+\.\d+\.\d+$", str(parent)), "parent must look like sport/size/model@1.2.3")
+    need(parent is None or re.match(r"^[a-z_]+/(nano|small|medium|yolo-nano|yolo-small|yolo-medium)/[a-z0-9-]+@\d+\.\d+\.\d+$", str(parent)), "parent must look like sport/size/model@1.2.3")
+    if parent and re.match(r"^[a-z_]+/([a-z-]+)/", str(parent)):
+        need((re.match(r"^[a-z_]+/([a-z-]+)/", str(parent)).group(1) in YOLO_SIZES) == (model.get("architecture") == "yolo26"), "parent must be a model of the same architecture")
     training = model.get("training")
     need(isinstance(training, dict) and isinstance(training.get("images"), int) and isinstance(training.get("games"), int) and training.get("games", 0) >= 1 and bool(training.get("camera")) and training.get("venue") in {"indoor", "outdoor"}, "training needs images, games, camera and venue")
     need(not PRIVATE_TEXT.search(json.dumps(training or {})), "training must not contain paths or mail addresses")
     rights = model.get("rights")
-    need(isinstance(rights, dict) and rights.get("confirmed_by") == model.get("author") and bool(rights.get("confirmed_at")) and rights.get("statement_version") == RIGHTS_STATEMENT_VERSION, "the confirmation of the rights is missing")
-    need(bool(re.match(r"^\d+\.\d+\.\d+$", str((model.get("compat") or {}).get("trainer_min", "")))), "compat.trainer_min is missing")
+    need(isinstance(rights, dict) and rights.get("confirmed_by") == model.get("author") and bool(rights.get("confirmed_at")) and rights.get("statement_version") == architecture["statement"], "the confirmation of the rights is missing")
+    trainer_min = str((model.get("compat") or {}).get("trainer_min", ""))
+    need(bool(re.match(r"^\d+\.\d+\.\d+$", trainer_min)), "compat.trainer_min is missing")
+    if model.get("architecture") == "yolo26" and re.match(r"^\d+\.\d+\.\d+$", trainer_min):
+        need(version_key(trainer_min) >= YOLO_TRAINER_MIN, "compat.trainer_min must be at least 0.37.0 for yolo26 models")
     files = model.get("files")
     if not (isinstance(files, list) and len(files) == 1 and isinstance(files[0], dict) and files[0].get("format") == "safetensors"):
         problems.append("files must hold exactly one safetensors file")
@@ -149,6 +175,9 @@ def check_weights(path: Path, model: dict) -> None:
     if digest.hexdigest() != entry["sha256"]:
         raise Invalid("the checksum of the weights does not match")
     header = read_header(path)
+    if model.get("architecture") == "yolo26":
+        check_yolo_header(header, model)
+        return
     try:
         tokens, head = header[POSITION_KEY]["shape"][1], header[CLASS_HEAD_KEY]["shape"][0]
     except (KeyError, IndexError, TypeError) as error:
@@ -157,6 +186,33 @@ def check_weights(path: Path, model: dict) -> None:
         raise Invalid(f"the weights are {POSITION_TOKENS.get(tokens, 'not Nano, Small or Medium')}, not {model['size']}")
     if head - 1 != len(model["classes"]):
         raise Invalid(f"the weights have {head - 1} classes, model.json lists {len(model['classes'])}")
+
+
+def check_yolo_header(header: dict, model: dict) -> None:
+    """The weights of a YOLO26 detector, judged from the header alone: the width of the first
+    convolution gives the size, the three class heads give the number of classes."""
+    for name, tensor in header.items():
+        if not YOLO_TENSOR_KEY.match(name):
+            raise Invalid(f"unexpected tensor name: {name[:80]}")
+        if tensor.get("dtype") not in YOLO_DTYPES:
+            raise Invalid("the weights hold tensors of an unexpected type")
+    if not 500 <= len(header) <= 1000:
+        raise Invalid("these weights are not a YOLO26 detection model")
+    try:
+        width = header[YOLO_FIRST_KEY]["shape"][0]
+        heads = [header[key]["shape"] for key in YOLO_CLASS_KEYS]
+    except (KeyError, IndexError, TypeError) as error:
+        raise Invalid("these weights are not a YOLO26 detection model") from error
+    size = {value: name for name, value in YOLO_SIZES.items()}.get(width)
+    if size is None:
+        raise Invalid("only YOLO26 Nano, Small and Medium can be shared")
+    if size != model["size"]:
+        raise Invalid(f"the weights are {size}, not {model['size']}")
+    counts = {shape[0] for shape in heads}
+    if len(counts) != 1 or any(len(shape) != 4 or shape[1] != 4 * width for shape in heads):
+        raise Invalid("these weights are not a YOLO26 detection model")
+    if counts.pop() != len(model["classes"]):
+        raise Invalid(f"the weights have a different number of classes than model.json lists ({len(model['classes'])})")
 
 
 def download(url: str, destination: Path) -> None:

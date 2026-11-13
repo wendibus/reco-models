@@ -3,3 +3,7 @@ reco Model Hub
 The models in this hub are fine-tuned from RF-DETR by Roboflow, Inc.
 RF-DETR Nano, Small and Medium, including their COCO weights, are licensed under the
 Apache License 2.0. See LICENSE.
+
+YOLO26 models in this hub are fine-tuned from YOLO26 by Ultralytics. Ultralytics YOLO26 is
+licensed under the GNU Affero General Public License v3.0 (AGPL-3.0); models trained with it are
+under the same license. Their `model.json` says "license": "AGPL-3.0".
